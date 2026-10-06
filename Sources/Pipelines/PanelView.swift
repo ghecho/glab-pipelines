@@ -156,8 +156,16 @@ struct MergeRequestRow: View {
             if let error = model.rowErrors[mergeRequest.key] {
                 Text(error).font(.caption).foregroundStyle(.red).padding(.leading, 38)
             }
-            if model.expanded.contains(mergeRequest.key), let detail = model.details[mergeRequest.key] {
-                PipelineDetailView(mergeRequest: mergeRequest, detail: detail, model: model)
+            if model.expanded.contains(mergeRequest.key) {
+                if let detail = model.details[mergeRequest.key] {
+                    PipelineDetailView(mergeRequest: mergeRequest, detail: detail, model: model)
+                } else if model.rowErrors[mergeRequest.key] == nil {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading stages…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 38)
+                }
             }
         }
     }
