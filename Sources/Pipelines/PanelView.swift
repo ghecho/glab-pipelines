@@ -63,6 +63,11 @@ struct PanelView: View {
                     Text("Updated \(updated, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Toggle("Open at login", isOn: Binding(get: { model.opensAtLogin }, set: model.setOpensAtLogin))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Refresh") { model.pollNow() }
                 Button("Quit") { NSApp.terminate(nil) }
             }

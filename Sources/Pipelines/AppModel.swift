@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import PipelineCore
+import ServiceManagement
 
 @MainActor @Observable
 final class AppModel {
@@ -12,6 +13,7 @@ final class AppModel {
     private(set) var rowErrors: [MRKey: String] = [:]
     let watchList = WatchList()
     let notifier = Notifier()
+    private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
 
     private var transport: GlabTransport?
     private var poller: Poller?
@@ -32,6 +34,18 @@ final class AppModel {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    func setOpensAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        let status = SMAppService.mainApp.status
+        // macOS can ask you to allow the login item first. Its switch is in System Settings.
+        if status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+        opensAtLogin = status == .enabled
     }
 
     func pollNow() {
