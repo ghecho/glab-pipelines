@@ -27,14 +27,31 @@ struct PanelView: View {
                 .frame(height: min(listHeight.wrappedValue, (NSScreen.main?.visibleFrame.height ?? 800) - 180))
             }
             Divider()
-            HStack {
-                TextField("Watch an MR: paste its GitLab URL", text: newURL.projectedValue)
-                    .onSubmit {
-                        badURL.wrappedValue = !model.addWatched(newURL.wrappedValue)
-                        if !badURL.wrappedValue { newURL.wrappedValue = "" }
+            // AppKit draws a TextField prompt in its own color, which shows near white on the
+            // translucent panel. A Text behind the empty field matches the footer's gray.
+            TextField("Watch an MR", text: newURL.projectedValue, prompt: Text(""))
+                .background(alignment: .leading) {
+                    if newURL.wrappedValue.isEmpty {
+                        Text("Watch an MR: paste its GitLab URL").foregroundStyle(.secondary).allowsHitTesting(false)
                     }
-                    .foregroundStyle(badURL.wrappedValue ? .red : .primary)
-            }
+                }
+                .textFieldStyle(.plain)
+                .focusEffectDisabled()
+                .onSubmit {
+                    guard model.addWatched(newURL.wrappedValue) else {
+                        badURL.wrappedValue = true
+                        let rejected = newURL.wrappedValue
+                        Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            if newURL.wrappedValue == rejected { clearURLField() }
+                        }
+                        return
+                    }
+                    clearURLField()
+                }
+                .onChange(of: newURL.wrappedValue) { badURL.wrappedValue = false }
+                .onDisappear { clearURLField() }
+                .foregroundStyle(badURL.wrappedValue ? .red : .primary)
             if model.notifier.denied {
                 HStack {
                     Text("Notifications are off for Pipelines.").font(.caption)
@@ -53,6 +70,11 @@ struct PanelView: View {
         .padding(12)
         .frame(width: 460)
         .background(FitWindowToContent())
+    }
+
+    private func clearURLField() {
+        newURL.wrappedValue = ""
+        badURL.wrappedValue = false
     }
 
     private func list(_ snapshot: Snapshot) -> some View {
