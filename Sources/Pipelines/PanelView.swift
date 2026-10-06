@@ -8,6 +8,7 @@ struct PanelView: View {
     // does not build. SwiftUI still finds a stored `State` property.
     private let newURL = State(initialValue: "")
     private let badURL = State(initialValue: false)
+    private let listHeight = State(initialValue: CGFloat(0))
 
     private let groups: [(title: String, role: Role)] = [("Mine", .authored), ("Watched", .watched), ("Reviewing", .reviewing)]
 
@@ -17,22 +18,13 @@ struct PanelView: View {
                 Text(error).foregroundStyle(.red).font(.callout)
             }
             if let snapshot = model.snapshot {
-                ForEach(groups, id: \.title) { group in
-                    let rows = snapshot.mergeRequests.filter { $0.role == group.role }
-                    let errors = group.role == .watched ? snapshot.watchErrors.sorted { $0.key.iid > $1.key.iid } : []
-                    if !rows.isEmpty || !errors.isEmpty {
-                        Text(group.title).font(.headline)
-                        ForEach(rows) { MergeRequestRow(mergeRequest: $0, model: model) }
-                        ForEach(errors, id: \.key) { entry in
-                            HStack {
-                                Text(verbatim: "!\(entry.key.iid) \(entry.key.project)").lineLimit(1)
-                                Text(entry.value).foregroundStyle(.red).font(.caption)
-                                Spacer()
-                                Button("Remove") { model.removeWatched(entry.key) }
-                            }
-                        }
-                    }
+                // A ScrollView takes all the height it is offered. Measure the list and offer
+                // only that, up to the screen height, so the URL field and buttons stay visible.
+                ScrollView {
+                    list(snapshot)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight.wrappedValue = $0 }
                 }
+                .frame(height: min(listHeight.wrappedValue, (NSScreen.main?.visibleFrame.height ?? 800) - 180))
             }
             Divider()
             HStack {
@@ -61,6 +53,28 @@ struct PanelView: View {
         .padding(12)
         .frame(width: 460)
         .background(FitWindowToContent())
+    }
+
+    private func list(_ snapshot: Snapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(groups, id: \.title) { group in
+                let rows = snapshot.mergeRequests.filter { $0.role == group.role }
+                let errors = group.role == .watched ? snapshot.watchErrors.sorted { $0.key.iid > $1.key.iid } : []
+                if !rows.isEmpty || !errors.isEmpty {
+                    Text(group.title).font(.headline)
+                    ForEach(rows) { MergeRequestRow(mergeRequest: $0, model: model) }
+                    ForEach(errors, id: \.key) { entry in
+                        HStack {
+                            Text(verbatim: "!\(entry.key.iid) \(entry.key.project)").lineLimit(1)
+                            Text(entry.value).foregroundStyle(.red).font(.caption)
+                            Spacer()
+                            Button("Remove") { model.removeWatched(entry.key) }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
