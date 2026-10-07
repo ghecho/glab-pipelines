@@ -62,19 +62,22 @@ struct PanelView: View {
                     Text("Updated \(updated, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("Open at login", isOn: Binding(get: { model.opensAtLogin }, set: model.setOpensAtLogin))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !adding.wrappedValue {
-                    Button { adding.wrappedValue = true } label: {
-                        Label("Watch an MR", systemImage: "plus").labelStyle(.iconOnly)
-                    }
-                    .help("Watch an MR")
+                Menu {
+                    Button("Watch an MR…") { adding.wrappedValue = true }
+                    Button("Refresh") { model.pollNow() }
+                    Divider()
+                    Toggle("Open at Login", isOn: Binding(get: { model.opensAtLogin }, set: model.setOpensAtLogin))
+                    Divider()
+                    Button("Quit Pipelines") { NSApp.terminate(nil) }
+                } label: {
+                    Label("Options", systemImage: "gearshape").labelStyle(.iconOnly)
                 }
-                Button("Refresh") { model.pollNow() }
-                Button("Quit") { NSApp.terminate(nil) }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(.secondary)
+                .help("Options")
             }
         }
         .padding(12)
