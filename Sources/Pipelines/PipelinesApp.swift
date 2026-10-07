@@ -22,7 +22,7 @@ struct PipelinesApp: App {
 
     private var iconName: String {
         if model.snapshot == nil && model.error != nil { return "exclamationmark.triangle" }
-        switch model.snapshot?.indicator {
+        switch model.snapshot?.indicator(hiding: model.prefs.hidden) {
         case .failed: return "xmark.circle.fill"
         case .blocked: return "pause.circle.fill"
         case .running: return "arrow.triangle.2.circlepath.circle"

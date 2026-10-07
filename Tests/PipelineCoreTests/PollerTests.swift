@@ -27,7 +27,7 @@ func events(_ outcome: PollOutcome) -> [String]? {
 @MainActor @Test func firstPollSetsTheBaseline() async {
     let poller = Poller(transport: FakeTransport([.success(response(authored: [mrNode(1, status: "FAILED")]))]))
     #expect(events(await poller.poll(watched: [])) == [])
-    #expect(poller.lastGood?.mergeRequests.count == 1)
+    #expect(poller.lastGood?.items.count == 1)
 }
 
 @MainActor @Test func failedPollKeepsTheLastGoodSnapshot() async {
@@ -38,7 +38,7 @@ func events(_ outcome: PollOutcome) -> [String]? {
     ]))
     _ = await poller.poll(watched: [])
     #expect(events(await poller.poll(watched: [])) == nil)
-    #expect(poller.lastGood?.mergeRequests.first?.pipeline?.state == .running)
+    #expect(poller.lastGood?.items.first?.pipeline?.state == .running)
     #expect(events(await poller.poll(watched: [])) == ["Passed"])
 }
 
@@ -52,13 +52,20 @@ func events(_ outcome: PollOutcome) -> [String]? {
 }
 
 @MainActor @Test func sendsTheWatchedAliases() async {
-    let transport = FakeTransport([.success(response())])
-    _ = await Poller(transport: transport).poll(watched: [MRKey(project: "a/b", iid: 3)])
-    #expect(await transport.queries.first?.contains(#"w0: project(fullPath: "a/b")"#) == true)
+    let transport = FakeTransport([.success(response()), .success(response())])
+    _ = await Poller(transport: transport).poll(watched: [.mergeRequest(MRKey(project: "a/b", iid: 3))])
+    #expect(await transport.queries.last?.contains(#"w0: project(fullPath: "a/b")"#) == true)
+}
+
+@MainActor @Test func sendsOneRequestPerBatchOfWatches() async {
+    let keys = (1...5).map { ItemKey.mergeRequest(MRKey(project: "a/b", iid: $0)) }
+    let transport = FakeTransport(Array(repeating: .success(response()), count: 3))
+    _ = await Poller(transport: transport).poll(watched: keys)
+    #expect(await transport.queries.count == 3)
 }
 
 @Test func delayFollowsTheSnapshot() {
-    let running = Snapshot(mergeRequests: [mr(1, .reviewing, .running)], watchErrors: [:], closedWatched: [])
+    let running = Snapshot(items: [mr(1, .reviewing, .running)], watchErrors: [:], closedWatched: [])
     #expect(Poller.delay(after: .updated(running, [])) == .seconds(10))
     #expect(Poller.delay(after: .updated(snapshot(mr(1, .authored, .passed)), [])) == .seconds(30))
     #expect(Poller.delay(after: .failed(Offline())) == .seconds(60))

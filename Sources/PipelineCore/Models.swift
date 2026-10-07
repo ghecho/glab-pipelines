@@ -26,6 +26,92 @@ public struct MRKey: Hashable, Sendable {
     }
 }
 
+public struct BranchKey: Hashable, Sendable {
+    public let project: String
+    public let branch: String
+
+    public init(project: String, branch: String) {
+        self.project = project
+        self.branch = branch
+    }
+
+    /// Reads `https://gitlab.com/<project>/-/tree/<branch>` or `/-/commits/<branch>`. Everything
+    /// after the marker is the branch name, so a name with a slash works.
+    public init?(url: URL) {
+        guard url.host() == "gitlab.com" else { return nil }
+        let path = url.path(percentEncoded: false)
+        guard let marker = ["/-/tree/", "/-/commits/"].first(where: { path.contains($0) }) else { return nil }
+        let parts = path.components(separatedBy: marker)
+        guard parts.count == 2, parts[0].count > 1 else { return nil }
+        var branch = parts[1]
+        if branch.hasSuffix("/") { branch.removeLast() }
+        guard !branch.isEmpty else { return nil }
+        self.init(project: String(parts[0].dropFirst()), branch: branch)
+    }
+
+    /// The form the watch list stores.
+    public var url: URL {
+        URL(string: "https://gitlab.com/\(project)/-/tree/\(branch.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!)")!
+    }
+
+    /// The project's pipelines page, filtered to this branch.
+    public var pipelinesURL: URL {
+        var components = URLComponents(string: "https://gitlab.com/\(project)/-/pipelines")!
+        components.queryItems = [URLQueryItem(name: "ref", value: branch)]
+        return components.url!
+    }
+}
+
+public enum ItemKey: Hashable, Sendable {
+    case mergeRequest(MRKey)
+    case branch(BranchKey)
+
+    /// Reads a stored watch: an MR URL or a branch URL.
+    public init?(url: URL) {
+        if let key = MRKey(url: url) {
+            self = .mergeRequest(key)
+        } else if let key = BranchKey(url: url) {
+            self = .branch(key)
+        } else {
+            return nil
+        }
+    }
+
+    public var project: String {
+        switch self {
+        case .mergeRequest(let key): key.project
+        case .branch(let key): key.project
+        }
+    }
+
+    public var url: URL {
+        switch self {
+        case .mergeRequest(let key): key.url
+        case .branch(let key): key.url
+        }
+    }
+}
+
+/// What the Watch field accepts.
+public enum WatchInput: Equatable, Sendable {
+    case item(ItemKey)
+    /// A pipeline URL. The app asks GitLab once for the branch of the pipeline.
+    case pipeline(project: String, id: Int)
+
+    public init?(_ text: String) {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespaces)) else { return nil }
+        if let key = ItemKey(url: url) {
+            self = .item(key)
+            return
+        }
+        let parts = url.path(percentEncoded: false).components(separatedBy: "/-/pipelines/")
+        guard url.host() == "gitlab.com", parts.count == 2, parts[0].count > 1,
+              let id = parts[1].split(separator: "/").first.flatMap({ Int($0) })
+        else { return nil }
+        self = .pipeline(project: String(parts[0].dropFirst()), id: id)
+    }
+}
+
 /// The order is the precedence when one MR is in more than one list.
 public enum Role: Int, Comparable, Sendable {
     case authored, watched, reviewing
@@ -84,49 +170,75 @@ public struct Pipeline: Equatable, Sendable {
     }
 }
 
-public struct MergeRequest: Equatable, Sendable, Identifiable {
-    public let key: MRKey
+/// An MR, or the latest pipeline of a watched branch.
+public struct WatchItem: Equatable, Sendable, Identifiable {
+    public let key: ItemKey
+    /// The MR title, or the branch name.
     public let title: String
+    /// The MR page, or the branch's pipelines page.
     public let url: URL
     public let role: Role
+    public let projectName: String
+    public let lastCommitAt: Date?
+    /// Who started the pipeline. Only branch items carry it, because a branch pipeline can be anyone's.
+    public let startedBy: String?
     public let pipeline: Pipeline?
 
-    public init(key: MRKey, title: String, url: URL, role: Role, pipeline: Pipeline?) {
+    public init(key: ItemKey, title: String, url: URL, role: Role, projectName: String,
+                lastCommitAt: Date?, startedBy: String?, pipeline: Pipeline?) {
         self.key = key
         self.title = title
         self.url = url
         self.role = role
+        self.projectName = projectName
+        self.lastCommitAt = lastCommitAt
+        self.startedBy = startedBy
         self.pipeline = pipeline
     }
 
-    public var id: MRKey { key }
+    public var id: ItemKey { key }
+}
+
+/// Newest last commit first. An item with no date goes last. Ties sort by title, so the order is stable.
+func recentFirst(_ a: WatchItem, _ b: WatchItem) -> Bool {
+    switch (a.lastCommitAt, b.lastCommitAt) {
+    case let (x?, y?) where x != y: x > y
+    case (.some, nil): true
+    case (nil, .some): false
+    default: a.title < b.title
+    }
 }
 
 public struct Snapshot: Equatable, Sendable {
-    public let mergeRequests: [MergeRequest]
-    /// Watched MRs that GitLab returned no data for.
-    public let watchErrors: [MRKey: String]
+    public let items: [WatchItem]
+    /// Watched items that GitLab returned no data for.
+    public let watchErrors: [ItemKey: String]
     /// Watched MRs that are merged or closed.
-    public let closedWatched: [MRKey]
+    public let closedWatched: [ItemKey]
 
-    public init(mergeRequests: [MergeRequest], watchErrors: [MRKey: String], closedWatched: [MRKey]) {
-        self.mergeRequests = mergeRequests
+    public init(items: [WatchItem], watchErrors: [ItemKey: String], closedWatched: [ItemKey]) {
+        self.items = items
         self.watchErrors = watchErrors
         self.closedWatched = closedWatched
     }
 
-    public func mergeRequest(for key: MRKey) -> MergeRequest? {
-        mergeRequests.first { $0.key == key }
+    public func item(for key: ItemKey) -> WatchItem? {
+        items.first { $0.key == key }
     }
 
     public var anyRunning: Bool {
-        mergeRequests.contains { $0.pipeline?.state == .running }
+        items.contains { $0.pipeline?.state == .running }
     }
 
-    /// The worst state among authored and watched MRs. Reviewer MRs do not count.
-    public var indicator: PipelineState? {
-        let states = Set(mergeRequests.filter { $0.role != .reviewing }.compactMap(\.pipeline?.state))
+    /// The worst state among authored and watched items that are not hidden. Reviewer MRs do not count.
+    public func indicator(hiding hidden: Set<ItemKey> = []) -> PipelineState? {
+        let states = Set(items.filter { $0.role != .reviewing && !hidden.contains($0.key) }.compactMap(\.pipeline?.state))
         return [PipelineState.failed, .blocked, .running, .passed].first(where: states.contains)
+    }
+
+    /// Every key this poll knows about. Pins and hidden keys outside this set belong to merged or closed MRs.
+    public var knownKeys: Set<ItemKey> {
+        Set(items.map(\.key)).union(watchErrors.keys)
     }
 }
 

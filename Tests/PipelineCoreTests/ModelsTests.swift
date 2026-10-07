@@ -53,37 +53,104 @@ func rejectsOtherURLs(text: String) {
     #expect(throws: DecodeError.badID("gid://gitlab/Ci::Pipeline/x")) { try numericID("gid://gitlab/Ci::Pipeline/x") }
 }
 
-func mr(_ iid: Int, _ role: Role, _ state: PipelineState?, id: Int = 1) -> MergeRequest {
-    MergeRequest(
-        key: MRKey(project: "a/b", iid: iid),
-        title: "MR \(iid)",
-        url: MRKey(project: "a/b", iid: iid).url,
-        role: role,
-        pipeline: state.map {
-            Pipeline(id: id, state: $0, startedAt: nil, stages: [], runningJobs: [], failedJobs: [])
-        }
+@Test(arguments: [
+    ("https://gitlab.com/a/b/-/tree/main", "main"),
+    ("https://gitlab.com/a/b/-/commits/main", "main"),
+    ("https://gitlab.com/a/b/-/tree/feature/fix-login", "feature/fix-login"),
+    ("https://gitlab.com/a/b/-/tree/main?ref_type=heads", "main"),
+    ("https://gitlab.com/a/b/-/tree/main/", "main"),
+    ("https://gitlab.com/a/b/-/commits/main#top", "main"),
+])
+func parsesBranchURLs(text: String, branch: String) {
+    #expect(WatchInput(text) == .item(.branch(BranchKey(project: "a/b", branch: branch))))
+}
+
+@Test func parsesPipelineURLs() {
+    #expect(WatchInput("https://gitlab.com/a/b/-/pipelines/1234567890") == .pipeline(project: "a/b", id: 1234567890))
+    #expect(WatchInput("  https://gitlab.com/a/b/-/pipelines/12/builds ") == .pipeline(project: "a/b", id: 12))
+}
+
+@Test func parsesMergeRequestInput() {
+    #expect(WatchInput("https://gitlab.com/a/b/-/merge_requests/7/diffs") == .item(.mergeRequest(MRKey(project: "a/b", iid: 7))))
+}
+
+@Test(arguments: [
+    "hello",
+    "https://github.com/a/b/-/tree/main",
+    "https://gitlab.com/a/b/-/tree/",
+    "https://gitlab.com/a/b/-/pipelines/x",
+    "https://gitlab.com/a/b",
+])
+func rejectsOtherWatchInput(text: String) {
+    #expect(WatchInput(text) == nil)
+}
+
+@Test func mergeRequestKeyRoundTrips() {
+    let key = ItemKey.mergeRequest(MRKey(project: "a/b", iid: 3))
+    #expect(ItemKey(url: key.url) == key)
+}
+
+@Test(arguments: ["main", "feature/fix-login", "feature/a b"])
+func branchURLRoundTrips(branch: String) {
+    let key = ItemKey.branch(BranchKey(project: "a/b", branch: branch))
+    #expect(ItemKey(url: key.url) == key)
+}
+
+@Test func branchPipelinesURLFiltersByBranch() {
+    #expect(BranchKey(project: "a/b", branch: "feature/x").pipelinesURL.absoluteString
+            == "https://gitlab.com/a/b/-/pipelines?ref=feature/x")
+}
+
+func at(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+
+func mr(_ iid: Int, _ role: Role, _ state: PipelineState?, id: Int = 1, committed: Date? = nil) -> WatchItem {
+    let key = MRKey(project: "a/b", iid: iid)
+    return WatchItem(
+        key: .mergeRequest(key), title: "MR \(iid)", url: key.url, role: role, projectName: "b",
+        lastCommitAt: committed, startedBy: nil,
+        pipeline: state.map { Pipeline(id: id, state: $0, startedAt: nil, stages: [], runningJobs: [], failedJobs: []) }
     )
 }
 
-func snapshot(_ mergeRequests: MergeRequest...) -> Snapshot {
-    Snapshot(mergeRequests: mergeRequests, watchErrors: [:], closedWatched: [])
+func branch(_ name: String, _ state: PipelineState?, id: Int = 1, by user: String? = "jane") -> WatchItem {
+    let key = BranchKey(project: "a/b", branch: name)
+    return WatchItem(
+        key: .branch(key), title: name, url: key.pipelinesURL, role: .watched, projectName: "b",
+        lastCommitAt: nil, startedBy: user,
+        pipeline: state.map { Pipeline(id: id, state: $0, startedAt: nil, stages: [], runningJobs: [], failedJobs: []) }
+    )
 }
 
-@Test func indicatorIsWorstStateOfOwnMergeRequests() {
-    #expect(snapshot(mr(1, .authored, .passed), mr(2, .watched, .failed)).indicator == .failed)
-    #expect(snapshot(mr(1, .authored, .running), mr(2, .authored, .blocked)).indicator == .blocked)
-    #expect(snapshot(mr(1, .authored, .passed), mr(2, .authored, .running)).indicator == .running)
-    #expect(snapshot(mr(1, .authored, .passed)).indicator == .passed)
+func snapshot(_ items: WatchItem...) -> Snapshot {
+    Snapshot(items: items, watchErrors: [:], closedWatched: [])
+}
+
+@Test func indicatorIsWorstStateOfOwnItems() {
+    #expect(snapshot(mr(1, .authored, .passed), mr(2, .watched, .failed)).indicator() == .failed)
+    #expect(snapshot(mr(1, .authored, .running), branch("main", .blocked)).indicator() == .blocked)
+    #expect(snapshot(mr(1, .authored, .passed), mr(2, .authored, .running)).indicator() == .running)
+    #expect(snapshot(mr(1, .authored, .passed)).indicator() == .passed)
 }
 
 @Test func indicatorIgnoresReviewerAndCanceledPipelines() {
-    #expect(snapshot(mr(1, .reviewing, .failed)).indicator == nil)
-    #expect(snapshot(mr(1, .authored, .canceled), mr(2, .authored, nil)).indicator == nil)
+    #expect(snapshot(mr(1, .reviewing, .failed)).indicator() == nil)
+    #expect(snapshot(mr(1, .authored, .canceled), mr(2, .authored, nil)).indicator() == nil)
+}
+
+@Test func indicatorSkipsHiddenItems() {
+    let all = snapshot(mr(1, .authored, .failed), mr(2, .authored, .passed))
+    #expect(all.indicator(hiding: [.mergeRequest(MRKey(project: "a/b", iid: 1))]) == .passed)
 }
 
 @Test func anyRunningCountsEveryRole() {
     #expect(snapshot(mr(1, .reviewing, .running)).anyRunning)
     #expect(!snapshot(mr(1, .authored, .passed)).anyRunning)
+}
+
+@Test func knownKeysCoverItemsAndWatchErrors() {
+    let missing = ItemKey.branch(BranchKey(project: "x/y", branch: "main"))
+    let current = Snapshot(items: [mr(1, .authored, nil)], watchErrors: [missing: "gone"], closedWatched: [])
+    #expect(current.knownKeys == [.mergeRequest(MRKey(project: "a/b", iid: 1)), missing])
 }
 
 @Test func manualStagesAreTheBlockedStages() {

@@ -32,18 +32,16 @@ public struct PipelineDetail: Equatable, Sendable {
 }
 
 public enum PipelineQuery {
-    /// The jobs field on a stage rejects `retried`, so the query reads jobs from the
-    /// pipeline and groups them by stage name.
-    public static func build(_ key: MRKey) -> String {
+    /// One pipeline by its id, so MR rows and branch rows use the same query. The jobs field
+    /// on a stage rejects `retried`, so the query reads jobs from the pipeline and groups them.
+    public static func build(project: String, pipelineID: Int) -> String {
         """
         query {
-          project(fullPath: \(graphQLString(key.project))) {
-            mergeRequest(iid: "\(key.iid)") {
-              headPipeline {
-                stages { nodes { name status } }
-                jobs(first: 100, retried: false) {
-                  nodes { id name status duration retryable playable allowFailure stage { name } }
-                }
+          project(fullPath: \(graphQLString(project))) {
+            pipeline(id: "gid://gitlab/Ci::Pipeline/\(pipelineID)") {
+              stages { nodes { name status } }
+              jobs(first: 100, retried: false) {
+                nodes { id name status duration retryable playable allowFailure stage { name } }
               }
             }
           }
@@ -51,16 +49,14 @@ public enum PipelineQuery {
         """
     }
 
-    /// Nil when the MR has no pipeline.
-    public static func decode(_ data: Data) throws -> PipelineDetail? {
+    public static func decode(_ data: Data) throws -> PipelineDetail {
         let response = try makeDecoder().decode(GraphQLResponse<DetailData>.self, from: data)
         guard let body = response.data else {
             throw DecodeError.noData(response.errors?.map(\.message) ?? [])
         }
-        guard let mergeRequest = body.project?.mergeRequest else {
-            throw DecodeError.noData(["Not found, or you have no access"])
+        guard let pipeline = body.project?.pipeline else {
+            throw DecodeError.noData([MainQuery.notFound])
         }
-        guard let pipeline = mergeRequest.headPipeline else { return nil }
 
         let jobs = try (pipeline.jobs?.nodes ?? []).map { node in
             (stage: node.stage?.name, job: Job(
@@ -82,11 +78,23 @@ public enum PipelineQuery {
         }
         return PipelineDetail(stages: stages)
     }
+
+    /// For a pasted pipeline URL: the branch the pipeline ran on.
+    public static func buildBranchLookup(project: String, pipelineID: Int) -> String {
+        "query { project(fullPath: \(graphQLString(project))) { pipeline(id: \"gid://gitlab/Ci::Pipeline/\(pipelineID)\") { ref } } }"
+    }
+
+    public static func decodeBranch(_ data: Data) throws -> String {
+        let response = try makeDecoder().decode(GraphQLResponse<BranchData>.self, from: data)
+        guard let ref = response.data?.project?.pipeline?.ref else {
+            throw DecodeError.noData(response.errors?.map(\.message) ?? [MainQuery.notFound])
+        }
+        return ref
+    }
 }
 
 struct DetailData: Decodable {
-    struct Project: Decodable { let mergeRequest: MergeRequestNode? }
-    struct MergeRequestNode: Decodable { let headPipeline: PipelineNode? }
+    struct Project: Decodable { let pipeline: PipelineNode? }
     struct PipelineNode: Decodable {
         let stages: Connection<StatusNode>?
         let jobs: Connection<JobNode>?
@@ -102,6 +110,13 @@ struct DetailData: Decodable {
         let allowFailure: Bool
         let stage: StageRef?
     }
+
+    let project: Project?
+}
+
+struct BranchData: Decodable {
+    struct Project: Decodable { let pipeline: PipelineRef? }
+    struct PipelineRef: Decodable { let ref: String }
 
     let project: Project?
 }

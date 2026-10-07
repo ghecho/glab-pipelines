@@ -21,7 +21,7 @@ public final class Poller {
 
     /// Polls until the calling task is cancelled. Only one poll runs at a time, so an older
     /// result can never replace a newer one.
-    public func run(watched: () -> [MRKey], onOutcome: (PollOutcome) async -> Void) async {
+    public func run(watched: () -> [ItemKey], onOutcome: (PollOutcome) async -> Void) async {
         while !Task.isCancelled {
             pollAgain = false
             let outcome = await poll(watched: watched())
@@ -39,10 +39,18 @@ public final class Poller {
         sleeper?.cancel()
     }
 
-    public func poll(watched: [MRKey]) async -> PollOutcome {
+    public func poll(watched: [ItemKey]) async -> PollOutcome {
         do {
-            let data = try await transport.graphQL(MainQuery.build(watched: watched))
-            let snapshot = try MainQuery.decode(data, watched: watched)
+            let lists = try await transport.graphQL(MainQuery.buildLists())
+            var batches: [WatchBatch] = []
+            for keys in MainQuery.batches(watched) {
+                do {
+                    batches.append(WatchBatch(keys: keys, response: .success(try await transport.graphQL(MainQuery.buildWatches(keys)))))
+                } catch {
+                    batches.append(WatchBatch(keys: keys, response: .failure(error)))
+                }
+            }
+            let snapshot = try MainQuery.decode(lists: lists, batches: batches)
             let events = Transitions.events(from: lastGood, to: snapshot)
             lastGood = snapshot
             return .updated(snapshot, events)

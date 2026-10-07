@@ -2,16 +2,16 @@ import Foundation
 import Testing
 @testable import PipelineCore
 
-@Test func buildsQueryForOneMergeRequest() {
-    let query = PipelineQuery.build(MRKey(project: "a/b", iid: 123))
+@Test func buildsQueryForOnePipeline() {
+    let query = PipelineQuery.build(project: "a/b", pipelineID: 42)
     #expect(query.contains(#"project(fullPath: "a/b")"#))
-    #expect(query.contains(#"mergeRequest(iid: "123")"#))
+    #expect(query.contains(#"pipeline(id: "gid://gitlab/Ci::Pipeline/42")"#))
     #expect(query.contains("jobs(first: 100, retried: false)"))
 }
 
 @Test func groupsJobsByStageInStageOrder() throws {
     let data = Data("""
-    {"data": {"project": {"mergeRequest": {"headPipeline": {
+    {"data": {"project": {"pipeline": {
       "stages": {"nodes": [{"name": "test", "status": "failed"}, {"name": "maintenance", "status": "manual"}]},
       "jobs": {"nodes": [
         {"id": "gid://gitlab/Ci::Build/3", "name": "rollback:review", "status": "MANUAL", "duration": null,
@@ -20,9 +20,9 @@ import Testing
          "retryable": true, "playable": false, "allowFailure": false, "stage": {"name": "test"}},
         {"id": "gid://gitlab/Ci::Build/1", "name": "test:unit 1/4", "status": "SUCCESS", "duration": 300,
          "retryable": true, "playable": false, "allowFailure": false, "stage": {"name": "test"}}
-      ]}}}}}}
+      ]}}}}}
     """.utf8)
-    let detail = try #require(try PipelineQuery.decode(data))
+    let detail = try PipelineQuery.decode(data)
     #expect(detail.stages.map(\.name) == ["test", "maintenance"])
     #expect(detail.stages[0].state == .failed)
     #expect(detail.stages[0].jobs.map(\.name) == ["test:unit 1/4", "test:unit 2/4"])
@@ -32,12 +32,23 @@ import Testing
     ])
 }
 
-@Test func mergeRequestWithoutPipelineDecodesToNil() throws {
-    let data = Data(#"{"data": {"project": {"mergeRequest": {"headPipeline": null}}}}"#.utf8)
-    #expect(try PipelineQuery.decode(data) == nil)
+@Test(arguments: [#"{"data": {"project": {"pipeline": null}}}"#, #"{"data": {"project": null}}"#])
+func missingPipelineFailsTheDecode(text: String) {
+    #expect(throws: DecodeError.noData(["Not found, or you have no access"])) { try PipelineQuery.decode(Data(text.utf8)) }
 }
 
-@Test func missingMergeRequestFailsTheDecode() {
-    let data = Data(#"{"data": {"project": null}}"#.utf8)
-    #expect(throws: DecodeError.noData(["Not found, or you have no access"])) { try PipelineQuery.decode(data) }
+@Test func buildsBranchLookup() {
+    let query = PipelineQuery.buildBranchLookup(project: "a/b", pipelineID: 42)
+    #expect(query.contains(#"project(fullPath: "a/b")"#))
+    #expect(query.contains(#"pipeline(id: "gid://gitlab/Ci::Pipeline/42") { ref }"#))
+}
+
+@Test func decodesBranchLookup() throws {
+    let data = Data(#"{"data": {"project": {"pipeline": {"ref": "feature/fix-login"}}}}"#.utf8)
+    #expect(try PipelineQuery.decodeBranch(data) == "feature/fix-login")
+}
+
+@Test func branchLookupOfMissingPipelineFails() {
+    let data = Data(#"{"data": {"project": {"pipeline": null}}}"#.utf8)
+    #expect(throws: DecodeError.noData(["Not found, or you have no access"])) { try PipelineQuery.decodeBranch(data) }
 }

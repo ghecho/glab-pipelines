@@ -16,10 +16,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     func post(_ event: PipelineEvent) {
         let content = UNMutableNotificationContent()
-        content.title = "!\(event.mergeRequest.key.iid) \(event.mergeRequest.title)"
+        content.title = switch event.item.key {
+        case .mergeRequest: event.item.label
+        case .branch: "\(event.item.title) · \(event.item.projectName)"
+        }
         content.body = event.text
         content.sound = .default
-        content.userInfo = ["url": event.mergeRequest.url.absoluteString]
+        content.userInfo = ["url": event.item.url.absoluteString]
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         )

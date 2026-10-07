@@ -12,8 +12,6 @@ struct PanelView: View {
     private let adding = State(initialValue: false)
     @FocusState private var urlFocused: Bool
 
-    private let groups: [(title: String, role: Role)] = [("Mine", .authored), ("Watched", .watched), ("Reviewing", .reviewing)]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let error = model.error {
@@ -33,10 +31,10 @@ struct PanelView: View {
                 HStack(spacing: 8) {
                     // AppKit draws a TextField prompt in its own color, which shows near white on the
                     // translucent panel. A Text behind the empty field matches the footer's gray.
-                    TextField("MR URL", text: newURL.projectedValue, prompt: Text(""))
+                    TextField("URL", text: newURL.projectedValue, prompt: Text(""))
                         .background(alignment: .leading) {
                             if newURL.wrappedValue.isEmpty {
-                                Text("Paste a GitLab MR URL").foregroundStyle(.secondary).allowsHitTesting(false)
+                                Text("Paste a GitLab MR, branch or pipeline URL").foregroundStyle(.secondary).allowsHitTesting(false)
                             }
                         }
                         .textFieldStyle(.plain)
@@ -63,9 +61,10 @@ struct PanelView: View {
                 }
                 Spacer()
                 Menu {
-                    Button("Watch an MR…") { adding.wrappedValue = true }
+                    Button("Watch…") { adding.wrappedValue = true }
                     Button("Refresh") { model.pollNow() }
                     Divider()
+                    Toggle("Show Hidden", isOn: Binding(get: { model.prefs.showHidden }, set: { model.prefs.showHidden = $0 }))
                     Toggle("Open at Login", isOn: Binding(get: { model.opensAtLogin }, set: model.setOpensAtLogin))
                     Divider()
                     Button("Quit Pipelines") { NSApp.terminate(nil) }
@@ -87,17 +86,18 @@ struct PanelView: View {
     }
 
     /// An invalid URL turns red and stays for 3 seconds, so you can fix it, then the field clears.
+    /// A pipeline URL needs one GitLab call to find its branch, so adding is async.
     private func addWatched() {
-        guard model.addWatched(newURL.wrappedValue) else {
-            badURL.wrappedValue = true
-            let rejected = newURL.wrappedValue
-            Task {
+        let text = newURL.wrappedValue
+        Task {
+            guard await model.addWatched(text) else {
+                badURL.wrappedValue = true
                 try? await Task.sleep(for: .seconds(3))
-                if newURL.wrappedValue == rejected { newURL.wrappedValue = "" }
+                if newURL.wrappedValue == text { newURL.wrappedValue = "" }
+                return
             }
-            return
+            closeAddField()
         }
-        closeAddField()
     }
 
     private func closeAddField() {
@@ -107,20 +107,19 @@ struct PanelView: View {
     }
 
     private func list(_ snapshot: Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let groups = ListRules.groups(
+            snapshot, pinned: model.prefs.pinned, hidden: model.prefs.hidden, showHidden: model.prefs.showHidden
+        )
+        return VStack(alignment: .leading, spacing: 10) {
             ForEach(groups, id: \.title) { group in
-                let rows = snapshot.mergeRequests.filter { $0.role == group.role }
-                let errors = group.role == .watched ? snapshot.watchErrors.sorted { $0.key.iid > $1.key.iid } : []
-                if !rows.isEmpty || !errors.isEmpty {
-                    Text(group.title).font(.headline)
-                    ForEach(rows) { MergeRequestRow(mergeRequest: $0, model: model) }
-                    ForEach(errors, id: \.key) { entry in
-                        HStack {
-                            Text(verbatim: "!\(entry.key.iid) \(entry.key.project)").lineLimit(1)
-                            Text(entry.value).foregroundStyle(.red).font(.caption)
-                            Spacer()
-                            Button("Remove") { model.removeWatched(entry.key) }
-                        }
+                Text(group.title).font(.headline).foregroundStyle(group.dimmed ? .secondary : .primary)
+                ForEach(group.items) { WatchItemRow(item: $0, model: model, dimmed: group.dimmed) }
+                ForEach(group.errors.sorted { $0.key.label < $1.key.label }, id: \.key) { entry in
+                    HStack {
+                        Text(verbatim: entry.key.label).lineLimit(1)
+                        Text(entry.value).foregroundStyle(.red).font(.caption)
+                        Spacer()
+                        Button("Remove") { model.removeWatched(entry.key) }
                     }
                 }
             }
@@ -151,39 +150,67 @@ private struct FitWindowToContent: NSViewRepresentable {
     }
 }
 
-struct MergeRequestRow: View {
-    let mergeRequest: MergeRequest
+extension WatchItem {
+    /// "!123 Fix the login page" for an MR, the branch name for a branch.
+    var label: String {
+        switch key {
+        case .mergeRequest(let mr): "!\(mr.iid) \(title)"
+        case .branch: title
+        }
+    }
+}
+
+extension ItemKey {
+    /// For a row that has only a key, such as a watch that GitLab could not find.
+    var label: String {
+        switch self {
+        case .mergeRequest(let mr): "!\(mr.iid) \(mr.project)"
+        case .branch(let branch): "\(branch.branch) \(branch.project)"
+        }
+    }
+}
+
+struct WatchItemRow: View {
+    let item: WatchItem
     let model: AppModel
+    var dimmed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Button { model.toggle(mergeRequest.key) } label: {
-                    Image(systemName: model.expanded.contains(mergeRequest.key) ? "chevron.down" : "chevron.right")
-                        .frame(width: 12)
+            // A click on the title line, the repo line or the error expands the row, like the chevron.
+            // Open in Browser is in the right-click menu.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Button { model.toggle(item.key) } label: {
+                        Image(systemName: model.expanded.contains(item.key) ? "chevron.down" : "chevron.right")
+                            .frame(width: 12)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(item.pipeline == nil)
+                    StateIcon(state: item.pipeline?.state)
+                    if case .branch = item.key {
+                        Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                    }
+                    Text(verbatim: item.label).lineLimit(1)
+                    if model.prefs.pinned.contains(item.key) {
+                        Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if item.role == .watched {
+                        Button("Remove") { model.removeWatched(item.key) }
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(mergeRequest.pipeline == nil)
-                StateIcon(state: mergeRequest.pipeline?.state)
-                Button { NSWorkspace.shared.open(mergeRequest.url) } label: {
-                    Text(verbatim: "!\(mergeRequest.key.iid) \(mergeRequest.title)").lineLimit(1)
-                }
-                .buttonStyle(.plain)
-                Spacer()
-                if mergeRequest.role == .watched {
-                    Button("Remove") { model.removeWatched(mergeRequest.key) }
+                Text(verbatim: details).font(.caption).foregroundStyle(.secondary).padding(.leading, 38)
+                if let error = model.rowErrors[item.key] {
+                    Text(error).font(.caption).foregroundStyle(.red).padding(.leading, 38)
                 }
             }
-            if let pipeline = mergeRequest.pipeline {
-                Text(summary(pipeline)).font(.caption).foregroundStyle(.secondary).padding(.leading, 38)
-            }
-            if let error = model.rowErrors[mergeRequest.key] {
-                Text(error).font(.caption).foregroundStyle(.red).padding(.leading, 38)
-            }
-            if model.expanded.contains(mergeRequest.key) {
-                if let detail = model.details[mergeRequest.key] {
-                    PipelineDetailView(mergeRequest: mergeRequest, detail: detail, model: model)
-                } else if model.rowErrors[mergeRequest.key] == nil {
+            .contentShape(Rectangle())
+            .onTapGesture { if item.pipeline != nil { model.toggle(item.key) } }
+            if model.expanded.contains(item.key) {
+                if let detail = model.details[item.key] {
+                    PipelineDetailView(item: item, detail: detail, model: model)
+                } else if model.rowErrors[item.key] == nil {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
                         Text("Loading stages…").font(.caption).foregroundStyle(.secondary)
@@ -192,6 +219,23 @@ struct MergeRequestRow: View {
                 }
             }
         }
+        // The row's empty space takes clicks too, so a right-click anywhere on the row opens the menu.
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(model.prefs.pinned.contains(item.key) ? "Unpin" : "Pin") { model.prefs.togglePin(item.key) }
+            Button(model.prefs.hidden.contains(item.key) ? "Unhide" : "Hide") { model.prefs.toggleHidden(item.key) }
+            Divider()
+            Button("Open in Browser") { NSWorkspace.shared.open(item.url) }
+            if item.role == .watched {
+                Button("Remove") { model.removeWatched(item.key) }
+            }
+        }
+        .opacity(dimmed ? 0.55 : 1)
+    }
+
+    /// "app · jane.doe · Running: test". Only branch rows name who started the pipeline.
+    private var details: String {
+        [item.projectName, item.startedBy, item.pipeline.map(summary)].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func summary(_ pipeline: Pipeline) -> String {
@@ -209,15 +253,15 @@ struct MergeRequestRow: View {
 }
 
 struct PipelineDetailView: View {
-    let mergeRequest: MergeRequest
+    let item: WatchItem
     let detail: PipelineDetail
     let model: AppModel
     private let openStages = State(initialValue: Set<String>())
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            if mergeRequest.pipeline?.state == .failed {
-                Button("Retry failed jobs") { model.retryFailed(in: mergeRequest) }
+            if item.pipeline?.state == .failed {
+                Button("Retry failed jobs") { model.retryFailed(in: item) }
             }
             ForEach(detail.stages, id: \.name) { stage in
                 Button {
@@ -241,10 +285,10 @@ struct PipelineDetailView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             if job.state == .failed && job.retryable {
-                                Button("Retry") { model.retry(job, in: mergeRequest) }
+                                Button("Retry") { model.retry(job, in: item) }
                             }
                             if job.playable {
-                                Button("Run") { model.play(job, in: mergeRequest) }
+                                Button("Run") { model.play(job, in: item) }
                             }
                         }
                         .padding(.leading, 36)
