@@ -9,6 +9,8 @@ struct PanelView: View {
     private let newURL = State(initialValue: "")
     private let badURL = State(initialValue: false)
     private let listHeight = State(initialValue: CGFloat(0))
+    private let adding = State(initialValue: false)
+    @FocusState private var urlFocused: Bool
 
     private let groups: [(title: String, role: Role)] = [("Mine", .authored), ("Watched", .watched), ("Reviewing", .reviewing)]
 
@@ -27,31 +29,28 @@ struct PanelView: View {
                 .frame(height: min(listHeight.wrappedValue, (NSScreen.main?.visibleFrame.height ?? 800) - 180))
             }
             Divider()
-            // AppKit draws a TextField prompt in its own color, which shows near white on the
-            // translucent panel. A Text behind the empty field matches the footer's gray.
-            TextField("Watch an MR", text: newURL.projectedValue, prompt: Text(""))
-                .background(alignment: .leading) {
-                    if newURL.wrappedValue.isEmpty {
-                        Text("Watch an MR: paste its GitLab URL").foregroundStyle(.secondary).allowsHitTesting(false)
-                    }
-                }
-                .textFieldStyle(.plain)
-                .focusEffectDisabled()
-                .onSubmit {
-                    guard model.addWatched(newURL.wrappedValue) else {
-                        badURL.wrappedValue = true
-                        let rejected = newURL.wrappedValue
-                        Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            if newURL.wrappedValue == rejected { clearURLField() }
+            if adding.wrappedValue {
+                HStack(spacing: 8) {
+                    // AppKit draws a TextField prompt in its own color, which shows near white on the
+                    // translucent panel. A Text behind the empty field matches the footer's gray.
+                    TextField("MR URL", text: newURL.projectedValue, prompt: Text(""))
+                        .background(alignment: .leading) {
+                            if newURL.wrappedValue.isEmpty {
+                                Text("Paste a GitLab MR URL").foregroundStyle(.secondary).allowsHitTesting(false)
+                            }
                         }
-                        return
-                    }
-                    clearURLField()
+                        .textFieldStyle(.plain)
+                        .focusEffectDisabled()
+                        .focused($urlFocused)
+                        .onAppear { urlFocused = true }
+                        .onSubmit(addWatched)
+                        .onExitCommand(perform: closeAddField)
+                        .onChange(of: newURL.wrappedValue) { badURL.wrappedValue = false }
+                        .foregroundStyle(badURL.wrappedValue ? .red : .primary)
+                    Button("Cancel", action: closeAddField)
+                    Button("Add", action: addWatched)
                 }
-                .onChange(of: newURL.wrappedValue) { badURL.wrappedValue = false }
-                .onDisappear { clearURLField() }
-                .foregroundStyle(badURL.wrappedValue ? .red : .primary)
+            }
             if model.notifier.denied {
                 HStack {
                     Text("Notifications are off for Pipelines.").font(.caption)
@@ -68,6 +67,12 @@ struct PanelView: View {
                     .controlSize(.mini)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !adding.wrappedValue {
+                    Button { adding.wrappedValue = true } label: {
+                        Label("Watch an MR", systemImage: "plus").labelStyle(.iconOnly)
+                    }
+                    .help("Watch an MR")
+                }
                 Button("Refresh") { model.pollNow() }
                 Button("Quit") { NSApp.terminate(nil) }
             }
@@ -75,11 +80,27 @@ struct PanelView: View {
         .padding(12)
         .frame(width: 460)
         .background(FitWindowToContent())
+        .onDisappear(perform: closeAddField)
     }
 
-    private func clearURLField() {
+    /// An invalid URL turns red and stays for 3 seconds, so you can fix it, then the field clears.
+    private func addWatched() {
+        guard model.addWatched(newURL.wrappedValue) else {
+            badURL.wrappedValue = true
+            let rejected = newURL.wrappedValue
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                if newURL.wrappedValue == rejected { newURL.wrappedValue = "" }
+            }
+            return
+        }
+        closeAddField()
+    }
+
+    private func closeAddField() {
         newURL.wrappedValue = ""
         badURL.wrappedValue = false
+        adding.wrappedValue = false
     }
 
     private func list(_ snapshot: Snapshot) -> some View {
