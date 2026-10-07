@@ -101,3 +101,5 @@ scripts/test.sh
 ```
 
 Do not start the app with `swift run`. Notifications need an app bundle, so use `scripts/bundle.sh`.
+
+To publish a signed release that updates itself, follow `docs/RELEASING.md`.

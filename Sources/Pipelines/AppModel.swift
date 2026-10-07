@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import PipelineCore
 import ServiceManagement
+import Sparkle
 
 @MainActor @Observable
 final class AppModel {
@@ -15,6 +16,11 @@ final class AppModel {
     let notifier = Notifier()
     let prefs = ListPrefs()
     private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
+    /// Nil in dev builds. Only `scripts/release.sh` writes a feed URL into Info.plist, so a dev
+    /// build never looks for updates. Sparkle checks once a day, as Info.plist sets.
+    let updater: SPUStandardUpdaterController? = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") == nil
+        ? nil
+        : SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     private var transport: GlabTransport?
     private var poller: Poller?
@@ -47,6 +53,12 @@ final class AppModel {
         // macOS can ask you to allow the login item first. Its switch is in System Settings.
         if status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         opensAtLogin = status == .enabled
+    }
+
+    func checkForUpdates() {
+        // Pipelines has no Dock icon, so it must come forward or Sparkle's window opens behind other apps.
+        NSApp.activate()
+        updater?.checkForUpdates(nil)
     }
 
     func pollNow() {

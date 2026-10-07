@@ -66,6 +66,9 @@ struct PanelView: View {
                     Divider()
                     Toggle("Show Hidden", isOn: Binding(get: { model.prefs.showHidden }, set: { model.prefs.showHidden = $0 }))
                     Toggle("Open at Login", isOn: Binding(get: { model.opensAtLogin }, set: model.setOpensAtLogin))
+                    if model.updater != nil {
+                        Button("Check for Updates…") { model.checkForUpdates() }
+                    }
                     Divider()
                     Button("Quit Pipelines") { NSApp.terminate(nil) }
                 } label: {
