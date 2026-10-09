@@ -7,14 +7,24 @@ func titles(_ groups: [ListGroup]) -> [String] {
     groups.map { "\($0.title): " + $0.items.map(\.title).joined(separator: ", ") }
 }
 
-@Test func pinnedFirstThenNewestCommit() {
+@Test func pinnedItemsMoveToAGroupOnTop() {
+    let items = snapshot(
+        mr(1, .authored, nil, committed: at("2026-10-07T10:00:00Z")),
+        mr(2, .reviewing, nil, committed: at("2026-10-07T12:00:00Z")),
+        branch("main", nil),
+        mr(3, .authored, nil, committed: at("2026-10-07T09:00:00Z"))
+    )
+    let groups = ListRules.groups(items, pinned: [key(2), .branch(BranchKey(project: "a/b", branch: "main")), key(3)], hidden: [], showHidden: false)
+    #expect(titles(groups) == ["Pinned: MR 2, MR 3, main", "Mine: MR 1"])
+}
+
+@Test func newestCommitFirstInsideAGroup() {
     let items = snapshot(
         mr(1, .authored, nil, committed: at("2026-10-07T10:00:00Z")),
         mr(2, .authored, nil, committed: at("2026-10-07T12:00:00Z")),
         mr(3, .authored, nil, committed: at("2026-10-07T09:00:00Z"))
     )
-    let groups = ListRules.groups(items, pinned: [key(3)], hidden: [], showHidden: false)
-    #expect(titles(groups) == ["Mine: MR 3, MR 2, MR 1"])
+    #expect(titles(ListRules.groups(items, pinned: [], hidden: [], showHidden: false)) == ["Mine: MR 2, MR 1, MR 3"])
 }
 
 @Test func itemsWithoutDateGoLast() {

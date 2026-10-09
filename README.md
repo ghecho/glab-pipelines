@@ -54,7 +54,7 @@ Click the icon to open the panel:
 - Click Retry next to a failed job to run it again. Click Retry failed jobs to retry all failed jobs of the pipeline.
 - Click Run next to a manual job to start it. The job starts at once, with no confirmation. Take care with the jobs in the `maintenance` stage.
 - Click the gear icon, then Watch…, to follow an MR or a branch. Paste an MR URL, a branch URL such as `…/-/tree/main`, or a pipeline URL, then press Return. A branch watch shows the latest pipeline on that branch, whoever started it. A pipeline URL watches the branch of that pipeline.
-- Right-click a row to pin it to the top of its group, hide it, open it in the browser, or remove a watch. A hidden item sends no notifications. Click the gear icon, then Show Hidden, to see hidden items in a gray group at the bottom.
+- Right-click a row to pin it, hide it, open it in the browser, or remove a watch. Pinned items move to a Pinned group at the top of the panel. A hidden item sends no notifications. Click the gear icon, then Show Hidden, to see hidden items in a gray group at the bottom.
 - Each group lists the item with the newest commit first.
 
 Pipelines checks GitLab every 10 seconds while a pipeline runs, and every 30 seconds when nothing runs. Notifications go out for these events:

@@ -15,20 +15,21 @@ public struct ListGroup: Equatable, Sendable {
 }
 
 public enum ListRules {
-    /// Mine, Watched and Reviewing, then Hidden when `showHidden` is on. Inside each group, pinned
-    /// items come first, then newest last commit first. A hidden item shows only in Hidden, even when pinned.
+    /// Pinned on top, then Mine, Watched and Reviewing, then Hidden when `showHidden` is on. A pinned
+    /// item leaves its own group for Pinned. Each group lists the newest last commit first. A hidden
+    /// item shows only in Hidden, even when pinned.
     public static func groups(_ snapshot: Snapshot, pinned: Set<ItemKey>, hidden: Set<ItemKey>, showHidden: Bool) -> [ListGroup] {
         func ordered(_ items: [WatchItem]) -> [WatchItem] {
-            items.sorted { a, b in
-                let aPinned = pinned.contains(a.key)
-                let bPinned = pinned.contains(b.key)
-                return aPinned != bPinned ? aPinned : recentFirst(a, b)
-            }
+            items.sorted(by: recentFirst)
         }
 
         let shown = snapshot.items.filter { !hidden.contains($0.key) }
-        var groups = [("Mine", Role.authored), ("Watched", .watched), ("Reviewing", .reviewing)].compactMap { title, role -> ListGroup? in
-            let items = ordered(shown.filter { $0.role == role })
+        let pinnedItems = ordered(shown.filter { pinned.contains($0.key) })
+        let unpinned = shown.filter { !pinned.contains($0.key) }
+
+        var groups = pinnedItems.isEmpty ? [] : [ListGroup(title: "Pinned", items: pinnedItems, errors: [:], dimmed: false)]
+        groups += [("Mine", Role.authored), ("Watched", .watched), ("Reviewing", .reviewing)].compactMap { title, role -> ListGroup? in
+            let items = ordered(unpinned.filter { $0.role == role })
             let errors = role == .watched ? snapshot.watchErrors : [:]
             return items.isEmpty && errors.isEmpty ? nil : ListGroup(title: title, items: items, errors: errors, dimmed: false)
         }
