@@ -7,7 +7,12 @@ import UserNotifications
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private(set) var denied = false
 
+    // UNUserNotificationCenter raises an exception in a process with no app bundle, such as a run
+    // from Xcode. That run still shows the panel and polls, but sends no notifications.
+    private let bundled = Bundle.main.bundleIdentifier != nil
+
     func start() async {
+        guard bundled else { return }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
@@ -15,6 +20,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func post(_ event: PipelineEvent) {
+        guard bundled else { return }
         let content = UNMutableNotificationContent()
         content.title = switch event.item.key {
         case .mergeRequest: event.item.label
