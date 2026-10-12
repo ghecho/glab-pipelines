@@ -5,16 +5,18 @@ public struct Job: Equatable, Sendable, Identifiable {
     public let name: String
     public let state: PipelineState
     public let duration: Int?
+    public let startedAt: Date?
     public let retryable: Bool
     public let playable: Bool
     public let allowFailure: Bool
 
-    public init(id: Int, name: String, state: PipelineState, duration: Int?,
+    public init(id: Int, name: String, state: PipelineState, duration: Int?, startedAt: Date?,
                 retryable: Bool, playable: Bool, allowFailure: Bool) {
         self.id = id
         self.name = name
         self.state = state
         self.duration = duration
+        self.startedAt = startedAt
         self.retryable = retryable
         self.playable = playable
         self.allowFailure = allowFailure
@@ -41,7 +43,7 @@ public enum PipelineQuery {
             pipeline(id: "gid://gitlab/Ci::Pipeline/\(pipelineID)") {
               stages { nodes { name status } }
               jobs(first: 100, retried: false) {
-                nodes { id name status duration retryable playable allowFailure stage { name } }
+                nodes { id name status duration startedAt retryable playable allowFailure stage { name } }
               }
             }
           }
@@ -64,6 +66,7 @@ public enum PipelineQuery {
                 name: node.name,
                 state: try PipelineState(gitlab: node.status),
                 duration: node.duration,
+                startedAt: node.startedAt,
                 retryable: node.retryable,
                 playable: node.playable,
                 allowFailure: node.allowFailure
@@ -105,6 +108,7 @@ struct DetailData: Decodable {
         let name: String
         let status: String
         let duration: Int?
+        let startedAt: Date?
         let retryable: Bool
         let playable: Bool
         let allowFailure: Bool

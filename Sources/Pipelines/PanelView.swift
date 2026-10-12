@@ -283,7 +283,9 @@ struct PipelineDetailView: View {
                             StateIcon(state: job.state)
                             Text(job.name).lineLimit(1)
                             Spacer()
-                            if let duration = job.duration {
+                            if job.state == .running, let start = job.startedAt {
+                                Text(start, style: .timer).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            } else if let duration = job.duration {
                                 Text(Duration.seconds(duration).formatted(.time(pattern: .minuteSecond)))
                                     .font(.caption).foregroundStyle(.secondary)
                             }

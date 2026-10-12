@@ -14,11 +14,11 @@ import Testing
     {"data": {"project": {"pipeline": {
       "stages": {"nodes": [{"name": "test", "status": "failed"}, {"name": "maintenance", "status": "manual"}]},
       "jobs": {"nodes": [
-        {"id": "gid://gitlab/Ci::Build/3", "name": "rollback:review", "status": "MANUAL", "duration": null,
+        {"id": "gid://gitlab/Ci::Build/3", "name": "rollback:review", "status": "MANUAL", "duration": null, "startedAt": null,
          "retryable": false, "playable": true, "allowFailure": true, "stage": {"name": "maintenance"}},
-        {"id": "gid://gitlab/Ci::Build/2", "name": "test:unit 2/4", "status": "FAILED", "duration": 312,
+        {"id": "gid://gitlab/Ci::Build/2", "name": "test:unit 2/4", "status": "FAILED", "duration": 312, "startedAt": "2026-10-12T09:00:00Z",
          "retryable": true, "playable": false, "allowFailure": false, "stage": {"name": "test"}},
-        {"id": "gid://gitlab/Ci::Build/1", "name": "test:unit 1/4", "status": "SUCCESS", "duration": 300,
+        {"id": "gid://gitlab/Ci::Build/1", "name": "test:unit 1/4", "status": "SUCCESS", "duration": 300, "startedAt": "2026-10-12T08:59:00Z",
          "retryable": true, "playable": false, "allowFailure": false, "stage": {"name": "test"}}
       ]}}}}}
     """.utf8)
@@ -26,8 +26,9 @@ import Testing
     #expect(detail.stages.map(\.name) == ["test", "maintenance"])
     #expect(detail.stages[0].state == .failed)
     #expect(detail.stages[0].jobs.map(\.name) == ["test:unit 1/4", "test:unit 2/4"])
+    #expect(detail.stages[0].jobs[1].startedAt == ISO8601DateFormatter().date(from: "2026-10-12T09:00:00Z"))
     #expect(detail.stages[1].jobs == [
-        Job(id: 3, name: "rollback:review", state: .blocked, duration: nil,
+        Job(id: 3, name: "rollback:review", state: .blocked, duration: nil, startedAt: nil,
             retryable: false, playable: true, allowFailure: true),
     ])
 }
