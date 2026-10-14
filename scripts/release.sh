@@ -37,18 +37,9 @@ xcrun stapler staple build/Pipelines.app
 rm "$ZIP"
 ditto -c -k --keepParent build/Pipelines.app "$ZIP"
 
-# generate_appcast ships in Sparkle's release archive, at the version Package.resolved pins.
-SPARKLE_VERSION="$(grep -o '"version" : "[^"]*"' Package.resolved | head -1 | cut -d'"' -f4)"
-TOOLS="build/sparkle-$SPARKLE_VERSION"
-if [ ! -x "$TOOLS/bin/generate_appcast" ]; then
-  mkdir -p "$TOOLS"
-  curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz" \
-    | tar -xJ -C "$TOOLS"
-fi
-
 # The appcast lists only this release. Sparkle needs only the newest version to offer an update.
 # generate_appcast signs the zip with the private key that generate_keys stored in the keychain.
-"$TOOLS/bin/generate_appcast" --download-url-prefix "https://github.com/$GITHUB_REPO/releases/download/$TAG/" "$OUT"
+.build/artifacts/sparkle/Sparkle/bin/generate_appcast --download-url-prefix "https://github.com/$GITHUB_REPO/releases/download/$TAG/" "$OUT"
 
 gh release create "$TAG" "$ZIP" "$OUT/appcast.xml" \
   --repo "$GITHUB_REPO" --title "Pipelines $VERSION" --notes "Pipelines $VERSION"

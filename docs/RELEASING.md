@@ -45,17 +45,16 @@ xcrun notarytool store-credentials pipelines-notary --apple-id <your Apple ID em
 
 Sparkle accepts an update only if it carries a signature from your private EdDSA key. The app holds the matching public key.
 
-1. Download Sparkle's tools. Use the version that `Package.resolved` names, 2.10.0 at the time of writing. `release.sh` uses the same folder later.
+1. Get Sparkle's tools. SwiftPM downloads them with the Sparkle package, at the version that `Package.resolved` pins, and checks the archive against the checksum in Sparkle's manifest. `release.sh` uses the same folder later.
 
 ```bash
-mkdir -p build/sparkle-2.10.0
-curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz | tar -xJ -C build/sparkle-2.10.0
+swift package resolve
 ```
 
 2. Make the keys. The tool stores the private key in your keychain and prints the public key.
 
 ```bash
-build/sparkle-2.10.0/bin/generate_keys
+.build/artifacts/sparkle/Sparkle/bin/generate_keys
 ```
 
    Copy the public key. It is your `SPARKLE_PUBLIC_KEY`.
@@ -63,10 +62,10 @@ build/sparkle-2.10.0/bin/generate_keys
 3. Export the private key and keep the file in your password manager.
 
 ```bash
-build/sparkle-2.10.0/bin/generate_keys -x sparkle-private-key.txt
+.build/artifacts/sparkle/Sparkle/bin/generate_keys -x sparkle-private-key.txt
 ```
 
-   Then delete `sparkle-private-key.txt` from the disk.
+   Then delete `sparkle-private-key.txt` from the disk. Git ignores the file, so it cannot be committed by accident.
 
 Do not lose the private key. Without it, you cannot sign updates, and every teammate must install the next version by hand. To use the key on a new Mac, import it with `generate_keys -f sparkle-private-key.txt`.
 
