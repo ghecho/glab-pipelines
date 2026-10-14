@@ -9,6 +9,7 @@ struct PipelinesApp: App {
     init() {
         model = AppModel()
         model.start()
+        Bridge.start(model: model)
     }
 
     var body: some Scene {
@@ -16,8 +17,14 @@ struct PipelinesApp: App {
             PanelView(model: model)
         } label: {
             Image(systemName: iconName)
+                .onChange(of: bridgeState, initial: true) { Bridge.publish(bridgeState) }
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private var bridgeState: String {
+        if model.snapshot == nil && model.error != nil { return "error" }
+        return model.snapshot?.indicator(hiding: model.prefs.hidden)?.rawValue ?? "none"
     }
 
     private var iconName: String {
