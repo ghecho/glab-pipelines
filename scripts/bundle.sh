@@ -14,7 +14,9 @@ BIN="$(swift build -c release --show-bin-path)"
 APP=build/Pipelines.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp "$BIN/Pipelines" "$APP/Contents/MacOS/Pipelines"
+# strip -S removes the debug map, which holds the build folder's full path, so a release does not
+# show the user name and folders of the Mac that built it.
+strip -S "$BIN/Pipelines" -o "$APP/Contents/MacOS/Pipelines"
 
 # Sparkle. ditto keeps the framework's symlinks, which its signature depends on. Pipelines is not
 # sandboxed, so Sparkle's XPC services are not needed, and Sparkle's docs allow removing them.
