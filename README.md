@@ -100,6 +100,10 @@ Run the tests with this command:
 scripts/test.sh
 ```
 
-Do not start the app with `swift run`. Notifications need an app bundle, so use `scripts/bundle.sh`.
+`swift run` and the Run button in Xcode start the app with no notifications, because notifications need an app bundle. To test notifications, use `scripts/bundle.sh`.
 
 To publish a signed release that updates itself, follow `docs/RELEASING.md`.
+
+## License
+
+Pipelines is released under the MIT License. See `LICENSE`. The app includes [Sparkle](https://github.com/sparkle-project/Sparkle), which has its own MIT License.

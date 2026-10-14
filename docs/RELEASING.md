@@ -2,13 +2,13 @@
 
 This page tells you how to publish a signed release that teammates install once and that then updates itself. You do the setup once, on the Mac that holds your Apple developer certificate. After that, each release is one command.
 
-A release is a GitHub release in a public repository. It holds the zipped app and `appcast.xml`, the file that Sparkle reads to find new versions. Sparkle is the update framework in the app. It checks for a new version once a day and asks before it installs one.
+A release is a GitHub release in a public repository, usually the repository that holds this source. It holds the zipped app and `appcast.xml`, the file that Sparkle reads to find new versions. Sparkle is the update framework in the app. It checks for a new version once a day and asks before it installs one.
 
 ## What you need
 
 - A paid Apple Developer Program membership. A free Apple ID cannot make a Developer ID certificate.
 - The Xcode command line tools, as for a normal build.
-- The GitHub command line tool, `gh`, logged in to the account that owns the releases repository.
+- The GitHub command line tool, `gh`, logged in to the account that owns the repository that gets the releases.
 - A clone of this repository on that Mac.
 
 ## One-time setup
@@ -69,9 +69,11 @@ swift package resolve
 
 Do not lose the private key. Without it, you cannot sign updates, and every teammate must install the next version by hand. To use the key on a new Mac, import it with `generate_keys -f sparkle-private-key.txt`.
 
-### 4. Make the releases repository
+### 4. Choose the repository for the releases
 
-Make a public GitHub repository that holds only releases, for example `pipelines-releases`. The source repository can stay private.
+Put the releases in the public GitHub repository that holds this source, for example `your-name/glab-pipelines`. The repository must be public. Sparkle downloads the appcast and the zip with no login, and GitHub asks for a login to download a release file from a private repository.
+
+If you want to keep the source private, make a second, public repository for the releases only. Create it with a README, because GitHub accepts a release only in a repository that has at least one commit.
 
 Log in with `gh` if you have not already:
 
@@ -79,7 +81,7 @@ Log in with `gh` if you have not already:
 gh auth login
 ```
 
-The repository's `<owner>/<name>`, for example `your-name/pipelines-releases`, is your `GITHUB_REPO`.
+The repository's `<owner>/<name>`, for example `your-name/glab-pipelines`, is your `GITHUB_REPO`.
 
 ### 5. Save the variables
 
@@ -89,7 +91,7 @@ Write the four values to a file outside the repository, for example `~/.pipeline
 export SIGN_IDENTITY="Developer ID Application: <your name> (<team ID>)"
 export NOTARY_PROFILE="pipelines-notary"
 export SPARKLE_PUBLIC_KEY="<public key from generate_keys>"
-export GITHUB_REPO="<owner>/pipelines-releases"
+export GITHUB_REPO="<owner>/glab-pipelines"
 ```
 
 The file holds no secrets: the certificate, the notarization password and the private key stay in your keychain. Do not commit it, because the identity and the repository name belong to you.
