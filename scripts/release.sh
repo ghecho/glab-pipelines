@@ -22,6 +22,17 @@ fi
 
 # GitHub redirects this address to the appcast of the newest release, so it never changes.
 export FEED_URL="https://github.com/$GITHUB_REPO/releases/latest/download/appcast.xml"
+
+# Sparkle offers an update only when its build number, the commit count that bundle.sh writes, is
+# higher than the installed one. The first release has no appcast yet, so there is nothing to compare.
+BUILD="$(git rev-list --count HEAD)"
+LIVE="$(curl -fsSL "$FEED_URL" 2>/dev/null | sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' | head -1)"
+if [ -n "$LIVE" ] && [ "$BUILD" -le "$LIVE" ]; then
+  echo "Build $BUILD is not higher than the published build $LIVE, so Sparkle would offer no update." >&2
+  echo "Commit the change to VERSION first." >&2
+  exit 1
+fi
+
 NO_INSTALL=1 scripts/bundle.sh
 
 OUT=build/release
